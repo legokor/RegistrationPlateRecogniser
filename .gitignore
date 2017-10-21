@@ -1,0 +1,6 @@
+Intro/bin/*
+Intro/obj/*
+packages/*
+.vs/RegistrationPlateRecognizer/v14.suo
+*.suo
+*.ide
