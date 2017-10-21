@@ -1,5 +1,5 @@
-Intro/bin/*
-Intro/obj/*
+RegistrationPlateRecognizer/bin/*
+RegistrationPlateRecognizer/obj/*
 packages/*
 .vs/RegistrationPlateRecognizer/v14.suo
 *.suo
