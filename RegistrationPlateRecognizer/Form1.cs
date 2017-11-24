@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using OpenCvSharp;
+using System.Threading;
 
 namespace RegistrationPlateRecognizer
 {
@@ -16,103 +17,96 @@ namespace RegistrationPlateRecognizer
         public Form1()
         {
             InitializeComponent();
+            Application.ApplicationExit += new EventHandler(OnApplicationExit);
+            show.Enabled = false;
+            hide.Enabled = false;
+            pictureBox1.SizeMode = PictureBoxSizeMode.StretchImage;
         }
 
-        Mat WhiteImage;
+        enum RecognizationModes { camera, image };
         string path = @"D:\Visual_studio\RegistrationPlateRecognizer\Pictures\car2.jpg";
+        Mat image;
+        VideoCapture capture;
+        Thread thread;
+        bool stop;
 
-        private void recognize_Click(object sender, EventArgs e)
+        void Recognize(object param)
         {
-
-            //Mat image = new Mat(path);
-            //Mat grayImage = new Mat();
-            //Cv2.CvtColor(image, grayImage, ColorConversionCodes.BGR2GRAY);
-            //WhiteImage = new Mat();
-
-            //Cv2.Threshold(grayImage, WhiteImage, 180, 255, ThresholdTypes.Binary);
-            //Erode(WhiteImage, 1);
-
-            ////kontúrok megtalálsa
-            //OpenCvSharp.Point[][] contours;
-            //HierarchyIndex[] hierarchy;
-            //Cv2.FindContours(WhiteImage, out contours, out hierarchy, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-
-
-            //var componentCount = 0;
-            //var contourIndex = 0;
-            //Mat drawing = Mat.Zeros(WhiteImage.Size(), MatType.CV_8UC1);
-            //while (contourIndex >= 0)
-            //{
-            //    Cv2.DrawContours(drawing, contours, contourIndex, Scalar.All(componentCount + 15), -1, LineTypes.Link8, hierarchy, int.MaxValue);
-            //    componentCount++;
-            //    contourIndex = hierarchy[contourIndex].Next;
-            //}
-            //Erode(drawing, 10);
-            //Dilate(drawing, 10);
-
-            //Cv2.ImWrite(@"D:\Visual_studio\RegistrationPlateRecognizer\Pictures\car_Drawing.jpg", drawing);
-            //Rect plate = new Rect();
-            //bool find = false;
-
-            //for (int y = image.Height - 1; y >= 0; y--)
-            //{
-            //    for (int x = image.Width - 1; x >= 0; x--)
-            //    {
-            //        if(drawing.At<byte>(y, x) != 0)
-            //        {
-            //            Cv2.FloodFill(drawing, new OpenCvSharp.Point(x, y), new Scalar(255), out plate, null, null, 4);
-            //            find = true;
-            //            break;
-            //        }
-            //    }
-            //    if (find) break;
-            //}
-
-            //Cv2.Rectangle(image, plate, new Scalar(255, 255, 255), -1);
-            //pictureBox1.Image = new Bitmap (OpenCvSharp.Extensions.BitmapConverter.ToBitmap(image));
-            //Cv2.ImWrite(@"D:\Visual_studio\RegistrationPlateRecognizer\Pictures\hidePlate.jpg", image);
-
-
-
-            
+            stop = false;
+            var mode = (RecognizationModes)param;
             List<Rect> boundRect = new List<Rect>();
-            using (Mat image = new Mat(path))
+            int sleepTime = 0;
+            int frameCount = 0;
+
+            if (mode == RecognizationModes.image)
+                image = new Mat(path);
+            else
+            {
+                image = new Mat();
+                capture = new VideoCapture(0);
+                double fps = capture.Fps;
+                if (fps == 0) fps = 60;
+                sleepTime = (int)Math.Round(1000 / fps);
+            }
             using (Mat grayImage = new Mat())
             using (Mat sobelImage = new Mat())
             using (Mat tresholdImage = new Mat())
             {
-                //make gray image
-                Cv2.CvtColor(image, grayImage, ColorConversionCodes.BGR2GRAY);
-
-                //gaussian blur
-                //Cv2.GaussianBlur(grayImage, grayImage, new OpenCvSharp.Size(5, 5), 0);
-
-                //sobel filter to detect vertical edges
-                Cv2.Sobel(grayImage, sobelImage, MatType.CV_8U, 1, 0);
-                Cv2.Threshold(sobelImage, tresholdImage, 0, 255, ThresholdTypes.Otsu | ThresholdTypes.Binary);
-
-                using (Mat element = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(10, 15)))
+                while (true)
                 {
-                    Cv2.MorphologyEx(tresholdImage, tresholdImage, MorphTypes.Close, element);
-                    OpenCvSharp.Point[][] edgesArray = tresholdImage.Clone().FindContoursAsArray(RetrievalModes.External, ContourApproximationModes.ApproxNone);
-                    foreach (OpenCvSharp.Point[] edges in edgesArray)
+                    if (frameCount % 6 == 0)
+                        boundRect.Clear();
+                    if (mode == RecognizationModes.camera)
+                        capture.Read(image);
+                    //make gray image
+                    Cv2.CvtColor(image, grayImage, ColorConversionCodes.BGR2GRAY);
+
+                    //sobel filter to detect vertical edges
+                    Cv2.Sobel(grayImage, sobelImage, MatType.CV_8U, 1, 0);
+                    Cv2.Threshold(sobelImage, tresholdImage, 0, 255, ThresholdTypes.Otsu | ThresholdTypes.Binary);
+
+                    using (Mat element = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(10, 15)))
                     {
-                        OpenCvSharp.Point[] normalizedEdges = Cv2.ApproxPolyDP(edges, 17, true);
-                        Rect appRect = Cv2.BoundingRect(normalizedEdges);
-                        if(appRect.Height > 20 && appRect.Width > 50 && appRect.Height/(double)appRect.Width < 0.5)
-                            boundRect.Add(appRect);
+                        Cv2.MorphologyEx(tresholdImage, tresholdImage, MorphTypes.Close, element);
+                        OpenCvSharp.Point[][] edgesArray = tresholdImage.Clone().FindContoursAsArray(RetrievalModes.External, ContourApproximationModes.ApproxNone);
+                        foreach (OpenCvSharp.Point[] edges in edgesArray)
+                        {
+                            OpenCvSharp.Point[] normalizedEdges = Cv2.ApproxPolyDP(edges, 17, true);
+                            Rect appRect = Cv2.BoundingRect(normalizedEdges);
+                            if (appRect.Height > 10 && appRect.Width > 20 && appRect.Height / (double)appRect.Width < 0.45)
+                                boundRect.Add(appRect);
+                        }
+                    }
+
+                    foreach (Rect r in boundRect)
+                    {
+                        Mat cut = new Mat(image, r);
+                        OpenCvSharp.Size size = new OpenCvSharp.Size(25, 25);
+                        Cv2.GaussianBlur(cut, cut, size, 10);
+                        image.CopyTo(cut);
+                    }
+
+                    frameCount++;
+                    pictureBox1.Image = new Bitmap(OpenCvSharp.Extensions.BitmapConverter.ToBitmap(image));
+                    //Cv2.ImWrite(@"D:\Visual_studio\RegistrationPlateRecognizer\Pictures\hidePlate.jpg", image);
+                    Cv2.WaitKey(sleepTime);
+                    if (mode == RecognizationModes.image)
+                        return;
+
+                    if (stop)
+                    {
+                        pictureBox1.Image = null;
+                        return;
                     }
                 }
-
-                foreach(Rect r in boundRect)
-                {
-                    Cv2.Rectangle(image, r, new Scalar(0, 0, 255), 2);
-                }
-
-                pictureBox1.Image = new Bitmap(OpenCvSharp.Extensions.BitmapConverter.ToBitmap(sobelImage));
             }
-          
+        }
 
+
+        private void recognize_Click(object sender, EventArgs e)
+        {
+            thread = new Thread(new ParameterizedThreadStart(Recognize));
+            thread.Start(RecognizationModes.image);
         }
 
         void Dilate(Mat image, int number)
@@ -134,6 +128,34 @@ namespace RegistrationPlateRecognizer
         private void show_Click(object sender, EventArgs e)
         {
             pictureBox1.Image = new Bitmap(path);
+        }
+
+        private void btnCamera_Click(object sender, EventArgs e)
+        {
+            thread = new Thread(new ParameterizedThreadStart(Recognize));
+            thread.Start(RecognizationModes.camera);
+        }
+
+        private void btnSearch_Click(object sender, EventArgs e)
+        {
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                path = openFileDialog.FileName;
+                show.Enabled = true;
+                hide.Enabled = true;
+                pictureBox1.Image = new Bitmap(path);
+            }
+        }
+
+        private void btnStop_Click(object sender, EventArgs e)
+        {
+            stop = true;
+            thread.Join();
+        }
+
+        private void OnApplicationExit(object sender, EventArgs e)
+        {
+            stop = true;
         }
     }
 }
